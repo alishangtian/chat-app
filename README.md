@@ -1,4 +1,10 @@
-# chat-app
+| Chat App |
+|:-------------------:|
+基于搜索引擎的人工智能助手
+
+## 页面
+![image](https://github.com/user-attachments/assets/14d97cab-e9ea-4924-ab42-c281de382d2b)
+
 ## 启动过程
 ```shell
 uvicorn main:app --reload

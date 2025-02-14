@@ -33,3 +33,18 @@ INFO:     Started server process [25668]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 ```
+
+## 已实现
+<ol>
+<li> 智能聊天 </li>
+<li> 网页搜索 </li>
+<li> 网页爬取 </li>
+<li> 工具调用 </li>
+</ol>
+
+## 规划中
+<ol>
+<li> 知识库嵌入 </li>
+<li> 视觉功能 </li>
+<li> 语音功能 </li>
+</ol>

@@ -538,3 +538,37 @@ body {
 .references.hidden {
     display: none;
 }
+
+/* 网页爬取状态样式 */
+.fetch-status {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 8px;
+    padding: 4px 8px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.webpage-content {
+    font-size: 0.85rem;
+    color: #1a73e8;
+    margin-top: 8px;
+    padding: 4px 8px;
+    background-color: #e8f0fe;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+/* 深色模式下的网页爬取状态样式 */
+@media (prefers-color-scheme: dark) {
+    .fetch-status {
+        background-color: #2d2d2d;
+        color: #bdc1c6;
+    }
+    
+    .webpage-content {
+        background-color: #1f2937;
+        color: #8ab4f8;
+    }
+}

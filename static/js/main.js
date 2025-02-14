@@ -54,7 +54,7 @@ class ChatApp {
             eventSource = new EventSource(url.toString());
             
             // 处理各种事件类型
-            ['status', 'search_results', 'answer', 'error'].forEach(eventType => {
+            ['status', 'search_results', 'search_result_update', 'answer', 'error'].forEach(eventType => {
                 eventSource.addEventListener(eventType, (event) => {
                     try {
                         console.log('Received event type:'+ event.type+' data:'+event.data);
@@ -104,6 +104,11 @@ class ChatApp {
                         this.updateSearchResults(data);
                     }
                     break;
+                case 'search_result_update':
+                    if (this.searchToggle.checked) {
+                        this.updateSearchResult(data);
+                    }
+                    break;
                 case 'answer':
                     this.updateAnswer(data);
                     break;
@@ -127,12 +132,54 @@ class ChatApp {
         switch (data.status) {
             case 'searching':
                 if (this.searchToggle.checked) {
-                    this.referenceCards.innerHTML = '<div class="loading">搜索中...</div>';
-                    // 在开始搜索时隐藏搜索结果框
-                    this.referencesSection.classList.remove('visible');
+                    // 添加搜索状态提示到搜索结果框顶部
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.className = 'loading';
+                    loadingDiv.textContent = '搜索中...';
+                    this.referenceCards.insertBefore(loadingDiv, this.referenceCards.firstChild);
+                }
+                // 更新聊天框状态
+                const existingLoadingSearch = this.answerContent.querySelector('.loading');
+                if (existingLoadingSearch) {
+                    existingLoadingSearch.textContent = '搜索中...';
+                }
+                break;
+            case 'parsing':
+                if (this.searchToggle.checked) {
+                    // 更新搜索结果框顶部的状态提示
+                    const loadingDiv = this.referenceCards.querySelector('.loading');
+                    if (loadingDiv) {
+                        loadingDiv.textContent = '网页解读中...';
+                    }
+                }
+                // 更新聊天框状态
+                const existingLoadingParse = this.answerContent.querySelector('.loading');
+                if (existingLoadingParse) {
+                    existingLoadingParse.textContent = '网页解读中...';
+                }
+                break;
+            case 'parsing_completed':
+                if (this.searchToggle.checked) {
+                    // 更新搜索结果框顶部的状态提示
+                    const loadingDiv = this.referenceCards.querySelector('.loading');
+                    if (loadingDiv) {
+                        loadingDiv.textContent = '解读结束';
+                    }
+                }
+                // 更新聊天框状态
+                const existingLoadingComplete = this.answerContent.querySelector('.loading');
+                if (existingLoadingComplete) {
+                    existingLoadingComplete.textContent = '解读结束';
                 }
                 break;
             case 'generating':
+                // 移除搜索结果框中的状态提示（如果存在）
+                if (this.searchToggle.checked) {
+                    const loadingDiv = this.referenceCards.querySelector('.loading');
+                    if (loadingDiv) {
+                        loadingDiv.remove();
+                    }
+                }
                 // 移除现有的loading元素（如果有）
                 const existingLoading = this.answerContent.querySelector('.loading');
                 if (existingLoading) {
@@ -150,7 +197,6 @@ class ChatApp {
     updateSearchResults(data) {
         if (!this.searchToggle.checked) return;
 
-        console.log('Search results:', data);
         if (data.status === 'error') {
             this.referenceCards.innerHTML = `
                 <div class="error">
@@ -162,46 +208,32 @@ class ChatApp {
         }
 
         const results = data.results || [];
-        if (results.length === 0 && !data.answerBox) {
+        if (results.length === 0) {
             this.referenceCards.innerHTML = '<div class="no-results">暂无相关搜索结果</div>';
             this.referencesSection.classList.remove('visible');
             return;
         }
 
-        // 清空现有结果并准备显示搜索框
-        this.referenceCards.innerHTML = '';
+        // 显示搜索框
         this.referencesSection.classList.add('visible');
 
-        // 如果存在answerBox，将其显示在最前面
-        if (data.answerBox) {
-            const answerBoxElement = document.createElement('div');
-            answerBoxElement.className = 'reference-card';
-            answerBoxElement.style.opacity = '0';
-            answerBoxElement.style.transition = 'opacity 0.3s ease';
-            answerBoxElement.innerHTML = `
-                <div class="content">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <span class="title" style="color: #333;">${data.answerBox.title || ''}</span>
-                        <span>${data.answerBox.answer || ''}</span>
-                        ${data.answerBox.source ? `<span class="link">${data.answerBox.source}</span>` : ''}
-                    </div>
-                </div>
-            `;
-            this.referenceCards.appendChild(answerBoxElement);
-            // 添加淡入动画
-            setTimeout(() => answerBoxElement.style.opacity = '1', 10);
-        }
-
-        // 流式添加搜索结果
+        // 流式添加新的搜索结果
         results.forEach((result, index) => {
             setTimeout(() => {
                 const resultElement = document.createElement('div');
                 resultElement.className = 'reference-card';
+                resultElement.id = `result-${index}`;
                 resultElement.style.opacity = '0';
                 resultElement.style.transition = 'opacity 0.3s ease';
+                
                 resultElement.innerHTML = `
                     <div class="content">
-                        <div class="title"><a href="${result.link}" target="_blank">${result.title || '无标题'}</a></div>
+                        <div class="title">
+                            ${result.isAnswerBox ? 
+                                `<span style="color: #333;">${result.title || '无标题'}</span>` :
+                                `<a href="${result.link}" target="_blank">${result.title || '无标题'}</a>`
+                            }
+                        </div>
                         <div class="snippet">
                             ${result.content || '无内容'}
                         </div>
@@ -210,8 +242,13 @@ class ChatApp {
                 this.referenceCards.appendChild(resultElement);
                 // 添加淡入动画
                 setTimeout(() => resultElement.style.opacity = '1', 10);
-            }, index * 100); // 每个结果间隔100ms显示
+            }, index * 100);
         });
+    }
+
+    updateSearchResult(data) {
+        // 不处理网页爬取更新
+        return;
     }
 
     updateAnswer(data) {

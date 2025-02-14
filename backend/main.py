@@ -108,7 +108,7 @@ async def generate_model_response(messages: List[Dict[str, str]], request_id: st
     Yields:
         str: 模型回复的文本片段
     """
-    logger.info(f"[{request_id}] 开始生成模型回复")
+    logger.info(f"[{request_id}] 开始生成模型回复，提示词为：\n\n{messages}")
     
     try:
         async with httpx.AsyncClient() as client:
@@ -213,67 +213,146 @@ async def stream_chat_response(message: str, request_id: str, use_search: bool =
                                 }, ensure_ascii=False)
                             }
                         
-                        # 执行工具调用
-                        results = await process_tool_calls(tool_calls, request_id)
-                        if results:
-                            yield {
-                                "event": "search_results",
-                                "data": json.dumps({
-                                    "status": "success",
-                                    "results": results,
-                                    "message": f"找到 {len(results)} 条相关信息"
-                                }, ensure_ascii=False)
-                            }
-                            
-                            # 构建系统提示词和上下文
-                            context = ""
-                            
+                        # 初始化结果列表
+                        search_results = []
+                        non_search_results = []
+                        
+                        # 执行工具调用并处理分步返回的结果
+                        parsing_started = False
+                        async for tool_result in process_tool_calls(tool_calls, request_id):
+                            if tool_result["type"] == "search_results":
+                                # 初始搜索结果
+                                results = tool_result["results"]
+                                search_results.extend(results)
+                                yield {
+                                    "event": "search_results",
+                                    "data": json.dumps({
+                                        "status": "success",
+                                        "results": results,
+                                        "isInitialResults": True,
+                                        "message": f"找到 {len(results)} 条相关信息"
+                                    }, ensure_ascii=False)
+                                }
+                            elif tool_result["type"] == "search_result_update":
+                                # 单个搜索结果更新（网页内容爬取）
+                                result = tool_result["result"]
+                                if not parsing_started:
+                                    parsing_started = True
+                                    yield {
+                                        "event": "status",
+                                        "data": json.dumps({
+                                            "status": "parsing",
+                                            "message": "网页解读中..."
+                                        }, ensure_ascii=False)
+                                    }
+                                # 只在后端更新search_results，不发送到前端
+                                for i, sr in enumerate(search_results):
+                                    if sr["link"] == result["link"]:
+                                        search_results[i] = result
+                                        break
+                                
+                                # 检查是否所有需要解析的结果都已完成
+                                all_parsing_completed = all(
+                                    not sr.get("needsFetch", False) or 
+                                    sr.get("fetchStatus") == "completed" 
+                                    for sr in search_results
+                                )
+                                if all_parsing_completed:
+                                    yield {
+                                        "event": "status",
+                                        "data": json.dumps({
+                                            "status": "parsing_completed",
+                                            "message": "解读结束"
+                                        }, ensure_ascii=False)
+                                    }
+                            elif tool_result["type"] == "tool_result":
+                                # 非搜索工具的结果
+                                non_search_results.append({
+                                    "tool_name": tool_result["tool_name"],
+                                    "result": tool_result["result"]
+                                })
+                        
+                        # 构建系统提示词和上下文
+                        context = ""
+                        
+                        # 处理搜索结果
+                        if search_results:
                             # 优先处理answerBox结果
-                            answer_box_results = [r for r in results if r.get("isAnswerBox")]
-                            regular_results = [r for r in results if not r.get("isAnswerBox")]
+                            answer_box_results = [r for r in search_results if r.get("isAnswerBox")]
+                            regular_results = [r for r in search_results if not r.get("isAnswerBox")]
                             
                             # 先添加answerBox内容
                             for result in answer_box_results:
-                                context += f"[重要参考信息]\n{result['title']}\n{result['content']}\n\n"
+                                content = result.get('content', '')
+                                # 限制长度为200字
+                                if len(content) > 200:
+                                    content = content[:200] + '...'
+                                context += f"[重要参考信息]\n{result['title']}\n{content}\n\n"
                             
-                            # 再添加其他搜索结果
+                            # 再添加其他搜索结果（包括爬取的网页内容）
                             for result in regular_results:
-                                context += f"{result['title']}\n{result['content']}\n\n"
+                                content = result.get('content', '')
+                                if result.get('fetchStatus') == 'completed':
+                                    # 获取网页内容并限制为200字
+                                    webpage_content = result.get('content', '')
+                                    # 移除HTML标签
+                                    import re
+                                    webpage_content = re.sub(r'<[^>]+>', '', webpage_content)
+                                    # 限制长度为200字
+                                    if len(webpage_content) > 200:
+                                        webpage_content = webpage_content[:200] + '...'
+                                    content = f"{content}\n\n网页内容：\n{webpage_content}"
+                                context += f"{result['title']}\n{content}\n\n"
+                        
+                        # 处理非搜索结果
+                        if non_search_results:
+                            context += "[工具调用结果]\n"
+                            for result in non_search_results:
+                                context += f"工具名称: {result['tool_name']}\n"
+                                context += f"执行结果: {json.dumps(result['result'], ensure_ascii=False)}\n\n"
+                        
+                        system_prompt = f"""
+                        你是一个杰出的人工智能助手。
+                        以下是相关的背景信息：
+                        
+                        {context}
+                        
+                        请注意：
+                        1. 标记为[重要参考信息]的内容非常重要且与问题紧密相关
+                        2. 标记为[工具调用结果]的内容是通过特定工具获取的数据
+                        
+                        请根据这些信息回答问题：
+                        - 优先参考[重要参考信息]
+                        - 合理利用[工具调用结果]
+                        - 回答要自然流畅，不要提及信息来源
+                        - 最终回复要格式清晰、内容友好
+                        """
                             
-                            system_prompt = f"""
-                            你是一个杰出的人工智能助手。
-                            以下是与问题相关的背景信息，其中标记为[重要参考信息]的内容非常重要且与问题紧密相关：
-                            {context}
-                            请根据这些信息回答问题，重点参考[重要参考信息]。
-                            回答要自然流畅，不要提及信息来源。
-                            最终回复要格式清晰、内容友好。
-                            """
-                            
-                            # 构建新的消息列表
-                            new_messages = [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": message}
-                            ]
-                            
-                            # 继续生成回答
+                        # 构建新的消息列表
+                        new_messages = [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": message}
+                        ]
+                        
+                        # 继续生成回答
+                        yield {
+                            "event": "status",
+                            "data": json.dumps({
+                                "status": "generating",
+                                "message": "正在生成回答..."
+                            }, ensure_ascii=False)
+                        }
+                        
+                        # 调用模型生成回复
+                        async for content in generate_model_response(new_messages, request_id):
                             yield {
-                                "event": "status",
+                                "event": "answer",
                                 "data": json.dumps({
-                                    "status": "generating",
-                                    "message": "正在生成回答..."
+                                    "status": "streaming",
+                                    "content": content
                                 }, ensure_ascii=False)
                             }
-                            
-                            # 调用模型生成回复
-                            async for content in generate_model_response(new_messages, request_id):
-                                yield {
-                                    "event": "answer",
-                                    "data": json.dumps({
-                                        "status": "streaming",
-                                        "content": content
-                                    }, ensure_ascii=False)
-                                }
-                                await asyncio.sleep(0.01)
+                            await asyncio.sleep(0.01)
                 else:
                     # 普通文本内容
                     yield {

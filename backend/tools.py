@@ -245,31 +245,72 @@ class WebCrawler:
 # 创建全局爬虫实例
 crawler = WebCrawler()
 
+async def summarize_content(content: str, model: str, api_token: str, max_length: int) -> str:
+    """使用模型对长文本进行总结"""
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": f"下述文本过长，请进行精简和总结，使最终输出内容长度接近{max_length}字符。\n 切记：需要保持原始重要信息，去除不相关的网页标记信息"
+            },
+            {
+                "role": "user",
+                "content": content
+            }
+        ]
+        
+        # 打印格式化的提示词
+        logger.info("总结内容的提示词:\n" + json.dumps(messages, ensure_ascii=False, indent=2))
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                settings.BASE_URL,
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "stream": False,
+                    "max_tokens": settings.MAX_CONTENT_LENGTH,
+                    "temperature": 0.7
+                },
+                headers={"Authorization": f"Bearer {api_token}"},
+                timeout=30.0
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("choices") and result["choices"][0].get("message"):
+                    return result["choices"][0]["message"]["content"]
+            return content[:max_length]  # 如果总结失败，直接截断
+    except Exception as e:
+        logger.error(f"内容总结失败: {str(e)}")
+        return content[:max_length]  # 发生错误时直接截断
+
 async def fetch_webpage_content(url: str) -> Dict[str, str]:
     """获取网页内容并提取正文，返回格式化的内容"""
     try:
         result = await crawler.fetch_webpage(url)
         if result['status'] == 'success':
             content = result['content']
+            main_content = content['main_content']
+            
+            # 检查内容长度是否超过限制
+            if len(main_content) > settings.MAX_CONTENT_LENGTH:
+                logger.info(f"网页内容长度超过限制 ({len(main_content)}字符)，进行内容总结")
+                main_content = await summarize_content(
+                    main_content,
+                    settings.MODEL,
+                    settings.API_TOKEN,
+                    settings.MAX_CONTENT_LENGTH
+                )
+                logger.info(f"内容总结完成，总结后长度: {len(main_content)}字符 \n\n 总结后内容：{main_content}")
+            
             # 返回结构化内容
             return {
                 'status': 'success',
                 'link': url,
                 'title': content['title'],
                 'description': content.get('meta_description', ''),
-                'content': content['main_content'],
-                'html': f"""
-                <div class="crawled-content" data-url="{url}">
-                    <h2 class="content-title">{content['title']}</h2>
-                    {content.get('meta_description') and f'<p class="content-description">{content["meta_description"]}</p>' or ''}
-                    <div class="content-body">
-                        {content['main_content'].replace('\n', '<br>')}
-                    </div>
-                    <div class="content-source">
-                        <a href="{url}" target="_blank" rel="noopener noreferrer">查看原文</a>
-                    </div>
-                </div>
-                """
+                'content': main_content
             }
         return {
             'status': 'error',
@@ -447,9 +488,11 @@ async def process_tool_calls(tool_calls: List[Dict[str, Any]], request_id: str =
                                 "isInitialResults": True
                             }
                             
-                            # 然后逐个爬取网页内容
+                            # 只处理前5个需要爬取的网页
+                            fetch_count = 0
                             for result in initial_results:
-                                if result.get("needsFetch"):
+                                if result.get("needsFetch") and fetch_count < 5:
+                                    fetch_count += 1
                                     try:
                                         # 更新状态为正在爬取
                                         result["fetchStatus"] = "fetching"
@@ -467,8 +510,7 @@ async def process_tool_calls(tool_calls: List[Dict[str, Any]], request_id: str =
                                                 "fetchStatus": "completed",
                                                 "title": fetch_result['title'],
                                                 "description": fetch_result['description'],
-                                                "content": fetch_result['content'],
-                                                "html": fetch_result['html']
+                                                "content": fetch_result['content']
                                             })
                                         else:
                                             result.update({
@@ -490,6 +532,15 @@ async def process_tool_calls(tool_calls: List[Dict[str, Any]], request_id: str =
                                             "type": "search_result_update",
                                             "result": result
                                         }
+                            
+                            # 发送网页读取完成事件
+                            yield {
+                                "type": "event",
+                                "data": json.dumps({
+                                    "status": "parsing_completed",
+                                    "message": "网页读取完成"
+                                }, ensure_ascii=False)
+                            }
                     else:
                         # 非搜索工具的结果直接返回
                         yield {

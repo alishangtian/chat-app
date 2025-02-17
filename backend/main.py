@@ -62,6 +62,9 @@ async def check_tool_calls(messages: List[Dict[str, str]], request_id: str = Non
     system_content = "你是一个智能助手。你可以使用工具来帮助回答问题。"
     all_messages = [{"role": "system", "content": system_content}] + messages
     
+    # 打印格式化的提示词
+    logger.info(f"[{request_id}] 工具调用检查的提示词:\n" + json.dumps(all_messages, ensure_ascii=False, indent=2))
+    
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -108,7 +111,8 @@ async def generate_model_response(messages: List[Dict[str, str]], request_id: st
     Yields:
         str: 模型回复的文本片段
     """
-    logger.info(f"[{request_id}] 开始生成模型回复，提示词为：\n\n{messages}")
+    # 打印格式化的提示词
+    logger.info(f"[{request_id}] 生成回复的提示词:\n" + json.dumps(messages, ensure_ascii=False, indent=2))
     
     try:
         async with httpx.AsyncClient() as client:
@@ -220,6 +224,10 @@ async def stream_chat_response(message: str, request_id: str, use_search: bool =
                         # 执行工具调用并处理分步返回的结果
                         parsing_started = False
                         async for tool_result in process_tool_calls(tool_calls, request_id):
+                            if "type" not in tool_result:
+                                logger.error(f"[{request_id}] 工具调用结果缺少type字段: {tool_result}")
+                                continue
+                                
                             if tool_result["type"] == "search_results":
                                 # 初始搜索结果
                                 results = tool_result["results"]
@@ -271,6 +279,12 @@ async def stream_chat_response(message: str, request_id: str, use_search: bool =
                                     "tool_name": tool_result["tool_name"],
                                     "result": tool_result["result"]
                                 })
+                            elif tool_result["type"] == "event":
+                                # 直接转发事件到前端
+                                yield {
+                                    "event": "status",
+                                    "data": tool_result.get("data", "{}")
+                                }
                         
                         # 构建系统提示词和上下文
                         context = ""
@@ -284,25 +298,14 @@ async def stream_chat_response(message: str, request_id: str, use_search: bool =
                             # 先添加answerBox内容
                             for result in answer_box_results:
                                 content = result.get('content', '')
-                                # 限制长度为200字
-                                if len(content) > 200:
-                                    content = content[:200] + '...'
                                 context += f"[重要参考信息]\n{result['title']}\n{content}\n\n"
                             
                             # 再添加其他搜索结果（包括爬取的网页内容）
                             for result in regular_results:
                                 content = result.get('content', '')
                                 if result.get('fetchStatus') == 'completed':
-                                    # 获取网页内容并限制为200字
-                                    webpage_content = result.get('content', '')
-                                    # 移除HTML标签
-                                    import re
-                                    webpage_content = re.sub(r'<[^>]+>', '', webpage_content)
-                                    # 限制长度为200字
-                                    if len(webpage_content) > 200:
-                                        webpage_content = webpage_content[:200] + '...'
-                                    content = f"{content}\n\n网页内容：\n{webpage_content}"
-                                context += f"{result['title']}\n{content}\n\n"
+                                    content = f"正文：\n{content}"
+                                context += f"标题：{result['title']}\n{content}\n\n"
                         
                         # 处理非搜索结果
                         if non_search_results:

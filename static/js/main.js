@@ -197,6 +197,9 @@ class ChatApp {
     updateSearchResults(data) {
         if (!this.searchToggle.checked) return;
 
+        // 清空原有的搜索结果
+        this.referenceCards.innerHTML = '';
+
         if (data.status === 'error') {
             this.referenceCards.innerHTML = `
                 <div class="error">

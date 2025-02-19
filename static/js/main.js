@@ -4,11 +4,44 @@ class ChatApp {
         this.sendButton = document.querySelector('.send-btn');
         this.answerContent = document.querySelector('.answer-content');
         this.referenceCards = document.querySelector('.reference-cards');
-        this.searchToggle = document.querySelector('#useSearch');
+        this.toolsSelection = document.querySelector('#toolsSelection');
         this.referencesSection = document.querySelector('.references');
         this.currentAnswer = ''; // 用于缓存当前对话的原始文本内容
         
         this.initializeEventListeners();
+        this.loadAvailableTools();
+    }
+
+    // 工具函数：截断过长的内容
+    truncateContent(content, maxLength = 300) {
+        if (!content) return '';
+        return content.length > maxLength ? content.slice(0, maxLength) + '...' : content;
+    }
+
+    async loadAvailableTools() {
+        try {
+            const response = await fetch('/api/tools');
+            const data = await response.json();
+            
+            // 清空现有工具选项
+            this.toolsSelection.innerHTML = '';
+            
+            // 添加新的工具选项
+            data.tools.forEach(tool => {
+                const toolOption = document.createElement('div');
+                toolOption.className = 'tool-option';
+                toolOption.innerHTML = `
+                    <input type="checkbox" id="${tool.name}" name="tool" value="${tool.name}" checked>
+                    <label for="${tool.name}" title="${tool.description}">${tool.name}</label>
+                `;
+                this.toolsSelection.appendChild(toolOption);
+            });
+            
+            // 更新工具选项引用
+            this.toolOptions = document.querySelectorAll('.tool-option input[type="checkbox"]');
+        } catch (error) {
+            console.error('加载工具列表失败:', error);
+        }
     }
 
     initializeEventListeners() {
@@ -16,6 +49,7 @@ class ChatApp {
         this.messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this.handleSendMessage();
         });
+
     }
 
     async handleSendMessage() {
@@ -46,38 +80,75 @@ class ChatApp {
 
         let eventSource = null;
         try {
+            // 准备请求数据
+            const requestData = {
+                message: message,
+                request_id: Date.now().toString(),
+                selected_tools: Array.from(this.toolOptions)
+                    .filter(option => option.checked)
+                    .map(option => option.value)
+            };
+
             // 创建 SSE 连接
             const url = new URL('/api/chat', window.location.href);
-            url.searchParams.set('message', message);
-            // 添加搜索参数
-            url.searchParams.set('use_search', this.searchToggle.checked.toString());
-            eventSource = new EventSource(url.toString());
+            eventSource = new EventSource(`${url}?${new URLSearchParams({
+                message: requestData.message,
+                request_id: requestData.request_id,
+                selected_tools: requestData.selected_tools.join(',')
+            }).toString()}`);
             
             // 处理各种事件类型
-            ['status', 'search_results', 'search_result_update', 'answer', 'error'].forEach(eventType => {
+            ['status', 'search_results', 'search_result_update', 'answer', 'error', 'complete'].forEach(eventType => {
                 eventSource.addEventListener(eventType, (event) => {
                     try {
-                        console.log('Received event type:'+ event.type+' data:'+event.data);
+                        // 检查连接状态
+                        if (eventSource.readyState === EventSource.CLOSED) {
+                            console.log(`Connection closed, ignoring ${eventType} event`);
+                            return;
+                        }
+                        
+                        // 检查event.data是否为undefined或空
+                        if (!event.data) {
+                            console.warn(`Received empty ${eventType} event data`);
+                            return;
+                        }
+                        
+                        // 处理事件数据
                         this.handleEventData(event);
-                        const data = JSON.parse(event.data);
-                        // 当收到completed状态时关闭连接
-                        if (eventType === 'status' && data.status === 'completed') {
-                            console.log('Chat completed, closing connection');
+                        
+                        // 如果是complete事件，关闭连接
+                        if (eventType === 'complete') {
+                            console.log('Received complete event, closing connection');
                             eventSource.close();
+                            return;
                         }
                     } catch (error) {
-                        console.error(`Error handling ${eventType} event:`, error, data);
+                        console.error(`Error handling ${eventType} event:`, error);
+                        this.showError({
+                            error: '处理服务器响应时发生错误',
+                            details: error.message
+                        });
                     }
                 });
             });
 
             eventSource.onerror = (error) => {
                 console.error('SSE Error:', error);
-                if (eventSource.readyState === EventSource.CLOSED) {
-                    console.log('Connection was closed');
-                } else {
-                    this.showError('连接出错，请重试');
-                    eventSource.close();
+                // 检查连接状态
+                switch(eventSource.readyState) {
+                    case EventSource.CONNECTING:
+                        console.log('正在重新连接...');
+                        break;
+                    case EventSource.CLOSED:
+                        console.log('Connection was closed');
+                        // 只有在确实需要显示错误时才显示
+                        if (!this.currentAnswer) {
+                            this.showError('连接已断开，请重试');
+                        }
+                        break;
+                    default:
+                        this.showError('连接出错，请重试');
+                        eventSource.close();
                 }
             };
 
@@ -93,19 +164,37 @@ class ChatApp {
     handleEventData(event) {
         try {
             console.log('Received SSE event:', event.type, event.data);
-            const data = JSON.parse(event.data);
+            // 增强空数据检查
+            if (!event.data || event.data.trim() === '') {
+                console.warn('Received empty event data');
+                return;
+            }
+            
+            let data;
+            try {
+                data = JSON.parse(event.data);
+            } catch (parseError) {
+                console.error('Failed to parse event data:', parseError);
+                return;
+            }
+            
+            // 验证数据格式
+            if (!data || typeof data !== 'object') {
+                console.warn('Invalid event data format');
+                return;
+            }
 
             switch (event.type) {
                 case 'status':
                     this.updateStatus(data);
                     break;
                 case 'search_results':
-                    if (this.searchToggle.checked) {
+                if (true) {
                         this.updateSearchResults(data);
                     }
                     break;
                 case 'search_result_update':
-                    if (this.searchToggle.checked) {
+                if (true) {
                         this.updateSearchResult(data);
                     }
                     break;
@@ -120,9 +209,18 @@ class ChatApp {
             }
         } catch (error) {
             console.error('Error handling event data:', error, event);
+            // 根据错误类型提供更具体的错误信息
+            let errorMessage = '处理服务器响应时发生错误';
+            let errorDetails = error.message;
+            
+            if (error instanceof SyntaxError) {
+                errorMessage = '无效的服务器响应格式';
+                errorDetails = '服务器返回了无效的数据格式';
+            }
+            
             this.showError({
-                error: '处理服务器响应时发生错误',
-                details: error.message
+                error: errorMessage,
+                details: errorDetails
             });
         }
     }
@@ -131,12 +229,10 @@ class ChatApp {
         console.log('Status update:', data);
         switch (data.status) {
             case 'searching':
-                if (this.searchToggle.checked) {
-                    // 添加搜索状态提示到搜索结果框顶部
-                    const loadingDiv = document.createElement('div');
-                    loadingDiv.className = 'loading';
-                    loadingDiv.textContent = '搜索中...';
-                    this.referenceCards.insertBefore(loadingDiv, this.referenceCards.firstChild);
+                if (true) {
+                    // 清空并添加搜索状态提示到搜索结果框
+                    this.referenceCards.innerHTML = '<div class="loading">搜索中...</div>';
+                    this.referencesSection.classList.add('visible');
                 }
                 // 更新聊天框状态
                 const existingLoadingSearch = this.answerContent.querySelector('.loading');
@@ -145,12 +241,10 @@ class ChatApp {
                 }
                 break;
             case 'parsing':
-                if (this.searchToggle.checked) {
-                    // 更新搜索结果框顶部的状态提示
-                    const loadingDiv = this.referenceCards.querySelector('.loading');
-                    if (loadingDiv) {
-                        loadingDiv.textContent = '网页解读中...';
-                    }
+                // 更新搜索结果框的状态提示
+                const loadingDivParse = this.referenceCards.querySelector('.loading');
+                if (loadingDivParse) {
+                    loadingDivParse.textContent = '网页解读中...';
                 }
                 // 更新聊天框状态
                 const existingLoadingParse = this.answerContent.querySelector('.loading');
@@ -159,12 +253,10 @@ class ChatApp {
                 }
                 break;
             case 'parsing_completed':
-                if (this.searchToggle.checked) {
-                    // 更新搜索结果框顶部的状态提示
-                    const loadingDiv = this.referenceCards.querySelector('.loading');
-                    if (loadingDiv) {
-                        loadingDiv.textContent = '解读结束';
-                    }
+                // 更新搜索结果框的状态提示
+                const loadingDivComplete = this.referenceCards.querySelector('.loading');
+                if (loadingDivComplete) {
+                    loadingDivComplete.textContent = '解读结束';
                 }
                 // 更新聊天框状态
                 const existingLoadingComplete = this.answerContent.querySelector('.loading');
@@ -174,11 +266,9 @@ class ChatApp {
                 break;
             case 'generating':
                 // 移除搜索结果框中的状态提示（如果存在）
-                if (this.searchToggle.checked) {
-                    const loadingDiv = this.referenceCards.querySelector('.loading');
-                    if (loadingDiv) {
-                        loadingDiv.remove();
-                    }
+                const loadingDivGen = this.referenceCards.querySelector('.loading');
+                if (loadingDivGen) {
+                    loadingDivGen.remove();
                 }
                 // 移除现有的loading元素（如果有）
                 const existingLoading = this.answerContent.querySelector('.loading');
@@ -195,7 +285,6 @@ class ChatApp {
     }
 
     updateSearchResults(data) {
-        if (!this.searchToggle.checked) return;
 
         // 清空原有的搜索结果
         this.referenceCards.innerHTML = '';
@@ -231,15 +320,17 @@ class ChatApp {
                 
                 resultElement.innerHTML = `
                     <div class="content">
-                        <div class="title">
-                            ${result.isAnswerBox ? 
-                                `<span style="color: #333;">${result.title || '无标题'}</span>` :
-                                `<a href="${result.link}" target="_blank">${result.title || '无标题'}</a>`
-                            }
-                        </div>
-                        <div class="snippet">
-                            ${result.content || '无内容'}
-                        </div>
+                        <h3 class="paper-title">
+                            <a href="${result.link}" target="_blank">${result.title || '无标题'}</a>
+                        </h3>
+                        ${result.isArxiv ? `
+                            <div class="paper-authors">${Array.isArray(result.authors) ? result.authors.join(', ') : (result.authors || '未知作者')}</div>
+                            <div class="paper-content">${this.truncateContent(result.abstract || result.content) || '无内容'}</div>
+                            <div class="paper-date">发布时间：${result.submitted || '未知日期'}</div>
+                        ` : `
+                            <div class="paper-content">${this.truncateContent(result.content) || '无内容'}</div>
+                            ${result.date ? `<div class="paper-date">发布时间：${result.date}</div>` : ''}
+                        `}
                     </div>
                 `;
                 this.referenceCards.appendChild(resultElement);

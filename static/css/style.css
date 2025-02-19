@@ -60,23 +60,60 @@ body {
     padding: 0.8rem;
 }
 
-.search-toggle {
+.tools-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 8px;
+    background: #f5f6f7;
+    margin: 0 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+    .tools-list {
+        background: #3d3d3d;
+    }
+}
+
+.tool-option {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    white-space: nowrap;
+    background: white;
+    padding: 0.3rem 0.8rem;
+    border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
 }
 
-.search-toggle input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
+.tool-option:hover {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+}
+
+.tool-option input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
     cursor: pointer;
+    accent-color: #6c5ce7;
 }
 
-.search-toggle label {
-    color: #666;
+.tool-option label {
+    color: #333;
     cursor: pointer;
     user-select: none;
+    font-size: 0.9rem;
+}
+
+@media (prefers-color-scheme: dark) {
+    .tool-option {
+        background: #2d2d2d;
+    }
+    
+    .tool-option label {
+        color: #e5e7eb;
+    }
 }
 
 .send-btn {
@@ -137,138 +174,85 @@ body {
     padding-right: 10px;
 }
 
-.reference-cards::-webkit-scrollbar {
-    width: 6px;
-}
-
-.reference-cards::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 3px;
-}
-
-.reference-cards::-webkit-scrollbar-thumb {
-    background: #c0c0c0;
-    border-radius: 3px;
-}
-
-.reference-cards::-webkit-scrollbar-thumb:hover {
-    background: #a0a0a0;
-}
-
 .reference-card {
     display: flex;
     flex-direction: column;
-    padding: 1rem;
-    border-bottom: 1px solid #eee;
-    margin-bottom: 0.5rem;
+    padding: 1.2rem;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    margin-bottom: 1rem;
     transition: all 0.2s;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .reference-card:hover {
-    background: rgba(108, 92, 231, 0.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
 }
 
-.reference-header {
+.reference-card .content {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.5rem;
+    flex-direction: column;
+    gap: 12px;
 }
 
-.site-icon {
-    width: 16px;
-    height: 16px;
-    object-fit: cover;
-    border-radius: 2px;
+.reference-card .paper-title {
+    font-size: 1.3rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 16px;
 }
 
-.site-info {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: #666;
-    font-size: 0.9rem;
-}
-
-.site-date {
-    color: #666;
-    font-size: 0.9rem;
-}
-
-.site-date::before {
-    content: "•";
-    margin: 0 0.5rem;
-}
-
-.content {
-    flex: 1;
-    min-width: 0;
-    width: 100%;
-    overflow: hidden;
-}
-
-.title {
-    font-size: 1rem;
-    font-weight: normal;
-    margin-bottom: 0.25rem;
-}
-
-/* 普通搜索结果的标题样式 */
-.reference-card:not(:first-child) .title a {
-    color: #1a0dab;
+.reference-card .paper-title a {
+    color: #2563eb;
     text-decoration: none;
+    transition: color 0.2s;
+    display: block;
 }
 
-.reference-card:not(:first-child) .title a:hover {
+.reference-card .paper-title a:hover {
+    color: #1d4ed8;
     text-decoration: underline;
 }
 
-/* answerBox的标题样式 */
-.reference-card:first-child .title {
-    color: #202124;
-    font-weight: 500;
-}
-
-/* 深色模式下answerBox的标题样式 */
-@media (prefers-color-scheme: dark) {
-    .reference-card:first-child .title {
-        color: #e8eaed;
-    }
-}
-
-.snippet {
-    color: #4d5156;
-    font-size: 0.875rem;
+.reference-card .paper-authors {
+    color: #2563eb;
+    font-size: 1.1rem;
     line-height: 1.5;
-    margin-bottom: 0.5rem;
+    margin: 8px 0 16px;
+    padding: 8px 12px;
+    background: #f0f7ff;
+    border-radius: 6px;
+    display: inline-block;
 }
 
-.answer-highlight {
-    background-color: #e8f0fe;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    border-left: 3px solid #1a73e8;
-    margin: 0.5rem 0;
-    font-weight: 500;
-}
-
-/* 深色模式下的高亮样式 */
-@media (prefers-color-scheme: dark) {
-    .answer-highlight {
-        background-color: #1f2937;
-        border-left-color: #3b82f6;
-    }
-}
-
-.answer-box {
+.reference-card .paper-content {
+    color: #374151;
+    font-size: 1rem;
+    line-height: 1.6;
+    text-align: justify;
+    margin: 16px 0;
+    padding: 16px;
     background: #f8f9fa;
     border-radius: 8px;
-    padding: 1rem;
-    margin: 0.5rem 0;
-    border-left: 4px solid #6c5ce7;
-    font-size: 0.9rem;
-    color: #202124;
-    line-height: 1.5;
+    border-left: 4px solid #e5e7eb;
+}
+
+.reference-card .paper-date {
+    color: #4b5563;
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 8px 0;
+    margin-top: 8px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+}
+
+.reference-card .paper-date::before {
+    content: "📅";
+    margin-right: 8px;
 }
 
 .answer-section {
@@ -386,39 +370,74 @@ body {
     }
 }
 
-/* 响应式布局 */
-@media (max-width: 768px) {
-.container {
-    max-width: 1400px;
-    margin: 2rem auto;
-    padding: 0 1rem;
-    display: flex;
-    flex-direction: row;
-    gap: 2rem;
-    height: calc(100vh - 4rem);
-}
-
-.chat-section {
-    flex: 1;
-    max-width: 65%;
-}
-    
-    .references {
-        flex: none;
-        height: 40vh;
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+    body {
+        background-color: #1a1a1a;
+        color: #fff;
     }
     
-    .search-box {
-        padding: 0.8rem;
-    }
-    
+    .search-box,
     .references,
     .answer-section {
-        padding: 1rem;
+        background: #2d2d2d;
+    }
+
+    .reference-card {
+        background: #2d2d2d;
+        border-color: #3d3d3d;
+    }
+
+    .reference-card .paper-title a {
+        color: #60a5fa;
+    }
+
+    .reference-card .paper-title a:hover {
+        color: #93c5fd;
+    }
+
+    .reference-card .paper-authors {
+        color: #60a5fa;
+        background: #1e293b;
+    }
+
+    .reference-card .paper-content {
+        color: #e2e8f0;
+        background: #1f2937;
+        border-left-color: #374151;
+    }
+
+    .reference-card .paper-date {
+        color: #9ca3af;
+        border-top-color: #374151;
+    }
+    
+    .input-group input[type="text"] {
+        background: #3d3d3d;
+        color: #fff;
+        border-color: #4d4d4d;
+    }
+    
+    .search-toggle label {
+        color: #bdc1c6;
+    }
+
+    .user-message {
+        background: #2d2d2d;
+        color: #e8eaed;
+    }
+
+    .references-header,
+    .answer-header {
+        border-bottom-color: #4d4d4d;
+    }
+    
+    .error {
+        background-color: #442326;
     }
 }
 
-/* 代码块样式 */
+/* Markdown样式 */
 .markdown-content pre {
     background-color: #f6f8fa;
     border-radius: 6px;
@@ -443,26 +462,6 @@ body {
     font-size: 85%;
 }
 
-/* 代码块滚动条样式 */
-.markdown-content pre::-webkit-scrollbar {
-    height: 8px;
-    width: 8px;
-}
-
-.markdown-content pre::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 4px;
-}
-
-.markdown-content pre::-webkit-scrollbar-thumb {
-    background: #c0c0c0;
-    border-radius: 4px;
-}
-
-.markdown-content pre::-webkit-scrollbar-thumb:hover {
-    background: #a0a0a0;
-}
-
 /* 深色模式下的代码块样式 */
 @media (prefers-color-scheme: dark) {
     .markdown-content pre {
@@ -479,96 +478,15 @@ body {
     }
 }
 
-/* 深色模式 */
-@media (prefers-color-scheme: dark) {
-    body {
-        background-color: #1a1a1a;
-        color: #fff;
+/* 响应式布局 */
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
     }
     
-    .search-box,
-    .references,
-    .answer-section {
-        background: #2d2d2d;
-    }
-    
-    .input-group input[type="text"] {
-        background: #3d3d3d;
-        color: #fff;
-        border-color: #4d4d4d;
-    }
-    
-    .reference-card {
-        border-color: #4d4d4d;
-    }
-    
-    .title a {
-        color: #8ab4f8;
-    }
-    
-    .snippet {
-        color: #bdc1c6;
-    }
-    
-    .answer-box {
-        background: #2d2d2d;
-        color: #e8eaed;
-    }
-    
-    .placeholder,
-    .no-results {
-        color: #888;
-    }
-    
-    .references-header,
-    .answer-header {
-        border-bottom-color: #4d4d4d;
-    }
-    
-    .error {
-        background-color: #442326;
-    }
-
-    .search-toggle label {
-        color: #bdc1c6;
-    }
-}
-
-/* 隐藏搜索结果框 */
-.references.hidden {
-    display: none;
-}
-
-/* 网页爬取状态样式 */
-.fetch-status {
-    font-size: 0.85rem;
-    color: #666;
-    margin-top: 8px;
-    padding: 4px 8px;
-    background-color: #f5f5f5;
-    border-radius: 4px;
-    display: inline-block;
-}
-
-.webpage-content {
-    font-size: 0.85rem;
-    color: #1a73e8;
-    margin-top: 8px;
-    padding: 4px 8px;
-    background-color: #e8f0fe;
-    border-radius: 4px;
-    display: inline-block;
-}
-
-/* 深色模式下的网页爬取状态样式 */
-@media (prefers-color-scheme: dark) {
-    .fetch-status {
-        background-color: #2d2d2d;
-        color: #bdc1c6;
-    }
-    
-    .webpage-content {
-        background-color: #1f2937;
-        color: #8ab4f8;
+    .references {
+        width: 100%;
+        height: auto;
+        max-height: 50vh;
     }
 }

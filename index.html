@@ -38,10 +38,50 @@
                 <span class="icon">📚</span>
                 <span>工具调用结果</span>
             </div>
+            <!-- 改进的进度显示 -->
+            <div class="progress-container">
+                <div class="progress-status">
+                    <span class="status-text">准备中...</span>
+                    <span class="progress-numbers">(0/0)</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar"></div>
+                </div>
+                <div class="progress-text">
+                    <span class="progress-percentage">0%</span>
+                    <span class="progress-details"></span>
+                </div>
+            </div>
             <div class="reference-cards">
                 <div class="no-results"></div>
             </div>
         </div>
     </div>
+
+    <!-- 添加元数据模板 -->
+    <template id="metadata-template">
+        <div class="metadata-panel">
+            <div class="metadata-item">
+                <span class="metadata-label">内容长度:</span>
+                <span class="metadata-value text-length">-</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">获取时间:</span>
+                <span class="metadata-value fetch-time">-</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">内容类型:</span>
+                <span class="metadata-value content-type">-</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">状态码:</span>
+                <span class="metadata-value status-code">-</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">是否已总结:</span>
+                <span class="metadata-value is-summarized">-</span>
+            </div>
+        </div>
+    </template>
 </body>
 </html>

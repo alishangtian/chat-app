@@ -1,5 +1,7 @@
+
 import json
 import logging
+import asyncio
 from typing import Dict, Any, List, AsyncGenerator
 
 from web_crawler import search_with_serper, fetch_webpage_content
@@ -108,8 +110,8 @@ async def process_tool_calls(tool_calls: List[Dict[str, Any]], request_id: str =
                     # 为所有工具添加request_id参数
                     tool_arguments["request_id"] = request_id
                     
-                    # 统一使用dict参数调用工具函数
-                    result = await tool_function(tool_arguments) if tool_name == "search_web" else tool_function(tool_arguments)
+                    # 统一使用异步调用
+                    result = await tool_function(tool_arguments)
                     
                     # 根据工具类型处理结果
                     if tool_name == "search_web":
@@ -123,18 +125,29 @@ async def process_tool_calls(tool_calls: List[Dict[str, Any]], request_id: str =
                             
                             # 并行处理需要爬取的网页
                             import asyncio
-                            
+                            from asyncio import Queue
+
+                            # 创建一个队列用于收集更新
+                            update_queue = Queue()
+                            total_items = 0
+                            completed_items = 0
+
                             async def fetch_and_update(item):
+                                nonlocal total_items, completed_items
                                 if not item.get("needsFetch"):
-                                    return []
+                                    return
                                 
-                                updates = []
                                 try:
                                     # 更新爬取状态
                                     item["fetchStatus"] = "fetching"
-                                    updates.append({
+                                    await update_queue.put({
                                         "type": "search_result_update",
-                                        "result": item
+                                        "result": item,
+                                        "progress": {
+                                            "total": total_items,
+                                            "completed": completed_items,
+                                            "current_url": item["link"]
+                                        }
                                     })
                                     
                                     # 爬取网页内容
@@ -159,54 +172,99 @@ async def process_tool_calls(tool_calls: List[Dict[str, Any]], request_id: str =
                                     item["fetchStatus"] = "error"
                                     item["error"] = f"爬取失败: {error_msg}"
                                 
-                                updates.append({
+                                completed_items += 1
+                                await update_queue.put({
                                     "type": "search_result_update",
-                                    "result": item
+                                    "result": item,
+                                    "progress": {
+                                        "total": total_items,
+                                        "completed": completed_items,
+                                        "current_url": item["link"]
+                                    }
                                 })
-                                return updates
-                            
-                            # 选择前5个需要爬取的结果
-                            items_to_fetch = [item for item in result.get("data", []) if item.get("needsFetch")][:5]
-                            logger.info(f"[{request_id}] Found {len(items_to_fetch)} items to fetch")
-                            
-                            # 并行执行爬取任务
-                            tasks = [fetch_and_update(item) for item in items_to_fetch]
-                            for updates in await asyncio.gather(*tasks):
-                                for update in updates:
+
+                                # 发送进度事件
+                                await update_queue.put({
+                                    "type": "event",
+                                    "data": json.dumps({
+                                        "status": "fetching_progress",
+                                        "progress": {
+                                            "total": total_items,
+                                            "completed": completed_items,
+                                            "percentage": round(completed_items / total_items * 100, 2)
+                                        },
+                                        "message": f"正在爬取网页 ({completed_items}/{total_items})"
+                                    }, ensure_ascii=False)
+                                })
+
+                            async def process_queue():
+                                while True:
+                                    update = await update_queue.get()
                                     yield update
+                                    update_queue.task_done()
+                                    if update["type"] == "event" and completed_items == total_items:
+                                        break
                             
-                            # 发送完成事件
-                            yield {
-                                "type": "event",
-                                "data": json.dumps({
-                                    "status": "parsing_completed",
-                                    "message": "网页读取完成"
-                                }, ensure_ascii=False)
-                            }
+                            items_to_fetch = [item for item in result.get("data", []) if item.get("needsFetch")]
+                            total_items = len(items_to_fetch)
+                            logger.info(f"[{request_id}] Found {total_items} items to fetch")
+                            
+                            if total_items > 0:
+                                # 创建爬取任务
+                                fetch_tasks = [asyncio.create_task(fetch_and_update(item)) for item in items_to_fetch]
+                                # 创建队列处理任务
+                                queue_task = asyncio.create_task(process_queue())
+                                
+                                # 等待所有任务完成
+                                await asyncio.gather(*fetch_tasks)
+                                async for update in queue_task:
+                                    yield update
+                                
+                                # 发送完成事件
+                                yield {
+                                    "type": "event",
+                                    "data": json.dumps({
+                                        "status": "parsing_completed",
+                                        "message": "所有网页读取完成",
+                                        "progress": {
+                                            "total": total_items,
+                                            "completed": total_items,
+                                            "percentage": 100
+                                        }
+                                    }, ensure_ascii=False)
+                                }
                             
                     elif tool_name == "search_arxiv":
-                        if isinstance(result, list):
-                            # 直接返回原始搜索结果
-                            yield {
-                                "type": "search_results",
-                                "results": result,
-                                "isInitialResults": True
-                            }
-                            
-                            # 发送完成事件
-                            yield {
-                                "type": "event",
-                                "data": json.dumps({
-                                    "status": "parsing_completed",
-                                    "message": "论文搜索完成"
-                                }, ensure_ascii=False)
-                            }
+                        # 返回工具调用结果
+                        yield {
+                            "type": "tool_result",
+                            "tool_name": tool_name,
+                            "result": result
+                        }
+                        
+                        # 发送完成事件
+                        yield {
+                            "type": "event",
+                            "data": json.dumps({
+                                "status": "parsing_completed",
+                                "message": "论文搜索完成"
+                            }, ensure_ascii=False)
+                        }
                     else:
                         # 其他工具的结果直接返回
                         yield {
                             "type": "tool_result",
                             "tool_name": tool_name,
                             "result": result
+                        }
+                        
+                        # 发送完成事件
+                        yield {
+                            "type": "event",
+                            "data": json.dumps({
+                                "status": "function_completed",
+                                "message": "工具调用完成"
+                            }, ensure_ascii=False)
                         }
                         
                     logger.info(f"[{request_id}] Tool execution completed")

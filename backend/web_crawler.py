@@ -1,82 +1,22 @@
+
 import json
 import logging
-import random
-import time
-from typing import Dict, Any, List, Optional
 import asyncio
-from urllib.parse import urlparse
-
-import httpx
+from datetime import datetime
+from typing import Dict, Any, Optional
 from bs4 import BeautifulSoup
+import httpx
 
 from config import settings
+from base_crawler import BaseCrawler
 
 logger = logging.getLogger(__name__)
 
-class WebCrawler:
-    """高级网页爬取工具，包含反爬虫和内容提取功能"""
-    
-    # 常用User-Agent列表
-    USER_AGENTS = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/91.0.864.59'
-    ]
+class WebCrawler(BaseCrawler):
+    """高级网页爬取工具，专注于通用网页内容提取功能"""
 
-    def __init__(self, proxy_pool: Optional[List[str]] = None):
-        """
-        初始化爬虫实例
-        
-        Args:
-            proxy_pool: 可选的代理IP池列表，格式如 ["http://ip:port", ...]
-        """
-        self.proxy_pool = proxy_pool or []
-        self.retry_count = 3
-        self.retry_delay = 2
-        self.timeout = 15.0
-        self.last_request_time = {}  # 用于记录对每个域名的最后请求时间
-
-    def _get_random_user_agent(self) -> str:
-        """随机获取一个User-Agent"""
-        return random.choice(self.USER_AGENTS)
-
-    def _get_random_proxy(self) -> Optional[str]:
-        """随机获取一个代理地址"""
-        return random.choice(self.proxy_pool) if self.proxy_pool else None
-
-    async def _respect_robots_txt(self, url: str) -> bool:
-        """检查robots.txt规则（简化版）"""
-        try:
-            parsed_url = urlparse(url)
-            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-            robots_url = f"{base_url}/robots.txt"
-            
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(robots_url)
-                if response.status_code == 200:
-                    # 简单检查是否允许访问
-                    return 'Disallow: ' + parsed_url.path not in response.text
-            return True
-        except Exception:
-            return True  # 如果无法获取robots.txt，默认允许访问
-
-    def _is_rate_limited(self, domain: str) -> bool:
-        """检查是否需要限制请求频率"""
-        current_time = time.time()
-        if domain in self.last_request_time:
-            time_diff = current_time - self.last_request_time[domain]
-            return time_diff < 1.0  # 对每个域名限制最少1秒间隔
-        return False
-
-    async def _wait_for_rate_limit(self, domain: str):
-        """等待直到可以发送下一个请求"""
-        while self._is_rate_limited(domain):
-            await asyncio.sleep(0.1)
-        self.last_request_time[domain] = time.time()
-
-    def _extract_main_content(self, html_content: str) -> Dict[str, str]:
+    @staticmethod
+    def _extract_main_content(html_content: str) -> Dict[str, str]:
         """
         智能提取网页主要内容
         
@@ -122,123 +62,56 @@ class WebCrawler:
             'text_length': len(main_content)
         }
 
-    async def _handle_javascript_page(self, url: str) -> Optional[str]:
+    @staticmethod
+    async def _handle_javascript_page(url: str) -> Optional[str]:
         """处理JavaScript渲染的页面（需要时可以集成Playwright或Selenium）"""
         # TODO: 实现JavaScript页面渲染
         logger.warning(f"检测到JavaScript渲染页面: {url}，当前版本暂不支持完整渲染")
         return None
 
-    async def fetch_webpage(self, url: str, js_render: bool = False) -> Dict[str, Any]:
+    async def fetch_webpage(self, url: str, js_render: bool = False, delay: float = 1.0) -> Dict[str, Any]:
         """
         获取并解析网页内容
         
         Args:
             url: 目标网页URL
             js_render: 是否需要JavaScript渲染
+            delay: 请求间隔延迟时间(秒)
         
         Returns:
             Dict包含状态码、内容等信息
         """
-        if not await self._respect_robots_txt(url):
-            raise ValueError(f"根据robots.txt规则，不允许爬取该URL: {url}")
+        # 使用基类的fetch_url方法获取原始响应
+        result = await self.fetch_url(url, delay=delay)
         
-        domain = urlparse(url).netloc
-        await self._wait_for_rate_limit(domain)
-        
-        headers = {
-            'User-Agent': self._get_random_user_agent(),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0'
-        }
-        
-        proxy = self._get_random_proxy()
-        
-        for attempt in range(self.retry_count):
-            try:
-                async with httpx.AsyncClient(
-                    timeout=self.timeout,
-                    proxies=proxy,
-                    follow_redirects=True
-                ) as client:
-                    response = await client.get(url, headers=headers)
-                    
-                    # 检查是否遇到反爬措施
-                    if response.status_code == 403 or response.status_code == 429:
-                        logger.warning(f"可能触发反爬机制 (状态码: {response.status_code})")
-                        await asyncio.sleep(self.retry_delay * (attempt + 1))
-                        continue
-                    
-                    response.raise_for_status()
-                    
-                    # 检查内容类型
-                    content_type = response.headers.get('content-type', '').lower()
-                    if 'text/html' not in content_type:
-                        return {
-                            'status': 'error',
-                            'message': f'不支持的内容类型: {content_type}',
-                            'status_code': response.status_code
-                        }
-                    
-                    # 检查是否需要JavaScript渲染
-                    if js_render and 'application/javascript' in content_type:
-                        js_content = await self._handle_javascript_page(url)
-                        if js_content:
-                            extracted_content = self._extract_main_content(js_content)
-                        else:
-                            extracted_content = self._extract_main_content(response.text)
-                    else:
-                        extracted_content = self._extract_main_content(response.text)
-                    
-                    return {
-                        'status': 'success',
-                        'status_code': response.status_code,
-                        'url': str(response.url),
-                        'content': extracted_content,
-                        'headers': dict(response.headers)
-                    }
-                    
-            except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP错误: {str(e)}")
-                if attempt == self.retry_count - 1:
-                    return {
-                        'status': 'error',
-                        'message': f'HTTP错误: {str(e)}',
-                        'status_code': e.response.status_code if e.response else None
-                    }
-                
-            except httpx.RequestError as e:
-                logger.error(f"请求错误: {str(e)}")
-                if attempt == self.retry_count - 1:
-                    return {
-                        'status': 'error',
-                        'message': f'请求错误: {str(e)}',
-                        'status_code': None
-                    }
-                
-            except Exception as e:
-                logger.error(f"未知错误: {str(e)}")
-                if attempt == self.retry_count - 1:
-                    return {
-                        'status': 'error',
-                        'message': f'未知错误: {str(e)}',
-                        'status_code': None
-                    }
+        if result['status'] != 'success':
+            return result
             
-            await asyncio.sleep(self.retry_delay * (attempt + 1))
+        # 检查内容类型
+        content_type = result['headers'].get('content-type', '').lower()
+        if 'text/html' not in content_type:
+            return {
+                'status': 'error',
+                'message': f'不支持的内容类型: {content_type}',
+                'status_code': result['status_code']
+            }
+        
+        # 检查是否需要JavaScript渲染
+        if js_render and 'application/javascript' in content_type:
+            js_content = await self._handle_javascript_page(url)
+            if js_content:
+                extracted_content = self._extract_main_content(js_content)
+            else:
+                extracted_content = self._extract_main_content(result['content'])
+        else:
+            extracted_content = self._extract_main_content(result['content'])
         
         return {
-            'status': 'error',
-            'message': '达到最大重试次数',
-            'status_code': None
+            'status': 'success',
+            'status_code': result['status_code'],
+            'url': result['url'],
+            'content': extracted_content,
+            'headers': result['headers']
         }
 
 # 创建全局爬虫实例
@@ -261,7 +134,10 @@ async def summarize_content(content: str, model: str, api_token: str, max_length
         # 打印格式化的提示词
         logger.info("总结内容的提示词:\n" + json.dumps(messages, ensure_ascii=False, indent=2))
         
-        async with httpx.AsyncClient() as client:
+        client_params = {
+            "timeout": 30.0
+        }
+        async with httpx.AsyncClient(**client_params) as client:
             response = await client.post(
                 settings.BASE_URL,
                 json={
@@ -286,44 +162,80 @@ async def summarize_content(content: str, model: str, api_token: str, max_length
 
 async def fetch_webpage_content(url: str) -> Dict[str, str]:
     """获取网页内容并提取正文，返回格式化的内容"""
-    try:
-        result = await crawler.fetch_webpage(url)
-        if result['status'] == 'success':
-            content = result['content']
-            main_content = content['main_content']
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            result = await crawler.fetch_webpage(url)
+            if result['status'] == 'success':
+                content = result['content']
+                main_content = content['main_content']
+                
+                # 检查内容长度是否超过限制
+                if len(main_content) > settings.MAX_CONTENT_LENGTH:
+                    logger.info(f"网页内容长度超过限制 ({len(main_content)}字符)，进行内容总结")
+                    main_content = await summarize_content(
+                        main_content,
+                        settings.MODEL,
+                        settings.API_TOKEN,
+                        settings.MAX_CONTENT_LENGTH
+                    )
+                    logger.info(f"内容总结完成，总结后长度: {len(main_content)}字符 \n\n 总结后内容：{main_content}")
+                
+                # 返回结构化内容，包含更多元数据
+                return {
+                    'status': 'success',
+                    'link': url,
+                    'title': content['title'],
+                    'description': content.get('meta_description', ''),
+                    'content': main_content,
+                    'metadata': {
+                        'text_length': len(main_content),
+                        'fetch_time': str(datetime.now()),
+                        'is_summarized': len(main_content) > settings.MAX_CONTENT_LENGTH,
+                        'content_type': result['headers'].get('content-type', ''),
+                        'status_code': result['status_code']
+                    }
+                }
             
-            # 检查内容长度是否超过限制
-            if len(main_content) > settings.MAX_CONTENT_LENGTH:
-                logger.info(f"网页内容长度超过限制 ({len(main_content)}字符)，进行内容总结")
-                main_content = await summarize_content(
-                    main_content,
-                    settings.MODEL,
-                    settings.API_TOKEN,
-                    settings.MAX_CONTENT_LENGTH
-                )
-                logger.info(f"内容总结完成，总结后长度: {len(main_content)}字符 \n\n 总结后内容：{main_content}")
+            # 如果是可重试的错误，继续重试
+            if result.get('status_code') in [429, 503, 504]:
+                retry_count += 1
+                if retry_count < max_retries:
+                    await asyncio.sleep(2 ** retry_count)  # 指数退避
+                    continue
             
-            # 返回结构化内容
             return {
-                'status': 'success',
+                'status': 'error',
                 'link': url,
-                'title': content['title'],
-                'description': content.get('meta_description', ''),
-                'content': main_content
+                'error': '无法获取网页内容',
+                'metadata': {
+                    'status_code': result.get('status_code'),
+                    'retry_count': retry_count,
+                    'fetch_time': str(datetime.now())
+                }
             }
-        return {
-            'status': 'error',
-            'link': url,
-            'error': '无法获取网页内容'
-        }
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Error fetching webpage: {error_msg}")
-        return {
-            'status': 'error',
-            'link': url,
-            'error': f'爬取失败: {error_msg}'
-        }
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error fetching webpage: {error_msg}")
+            retry_count += 1
+            
+            if retry_count < max_retries:
+                await asyncio.sleep(2 ** retry_count)  # 指数退避
+                continue
+                
+            return {
+                'status': 'error',
+                'link': url,
+                'error': f'爬取失败: {error_msg}',
+                'metadata': {
+                    'retry_count': retry_count,
+                    'fetch_time': str(datetime.now()),
+                    'error_type': type(e).__name__
+                }
+            }
 
 async def search_with_serper(args: Dict[str, Any], request_id: str = None) -> Dict[str, Any]:
     """使用Serper API进行搜索，并分步返回结果。
@@ -346,7 +258,10 @@ async def search_with_serper(args: Dict[str, Any], request_id: str = None) -> Di
         "Content-Type": "application/json"
     }
     
-    async with httpx.AsyncClient() as client:
+    client_params = {
+        "timeout": 30.0
+    }
+    async with httpx.AsyncClient(**client_params) as client:
         response = await client.post(
             settings.SERPER_API_URL,
             headers=headers,

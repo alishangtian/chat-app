@@ -1,3 +1,4 @@
+
 class ChatApp {
     constructor() {
         this.messageInput = document.querySelector('.search-box input[type="text"]');
@@ -98,7 +99,7 @@ class ChatApp {
             }).toString()}`);
             
             // 处理各种事件类型
-            ['status', 'search_results', 'search_result_update', 'answer', 'error', 'complete'].forEach(eventType => {
+            ['status', 'tool_result', 'answer', 'error', 'complete'].forEach(eventType => {
                 eventSource.addEventListener(eventType, (event) => {
                     try {
                         // 检查连接状态
@@ -188,15 +189,8 @@ class ChatApp {
                 case 'status':
                     this.updateStatus(data);
                     break;
-                case 'search_results':
-                if (true) {
-                        this.updateSearchResults(data);
-                    }
-                    break;
-                case 'search_result_update':
-                if (true) {
-                        this.updateSearchResult(data);
-                    }
+                case 'tool_result':
+                    this.handleToolResult(data);
                     break;
                 case 'answer':
                     this.updateAnswer(data);
@@ -227,58 +221,80 @@ class ChatApp {
 
     updateStatus(data) {
         console.log('Status update:', data);
+        
+        // 获取或创建状态提示元素
+        let statusElement = this.answerContent.querySelector('.loading');
+        if (!statusElement) {
+            statusElement = document.createElement('div');
+            statusElement.className = 'loading';
+            this.answerContent.appendChild(statusElement);
+        }
+        
+        // 获取进度条元素
+        const progressContainer = document.querySelector('.progress-container');
+        const progressBar = document.querySelector('.progress-bar');
+        const progressText = document.querySelector('.progress-text');
+        
+        // 更新状态提示
         switch (data.status) {
             case 'searching':
-                if (true) {
-                    // 清空并添加搜索状态提示到搜索结果框
-                    this.referenceCards.innerHTML = '<div class="loading">搜索中...</div>';
-                    this.referencesSection.classList.add('visible');
-                }
-                // 更新聊天框状态
-                const existingLoadingSearch = this.answerContent.querySelector('.loading');
-                if (existingLoadingSearch) {
-                    existingLoadingSearch.textContent = '搜索中...';
-                }
+                // 清空并显示搜索结果区域
+                this.referenceCards.innerHTML = '<div class="loading">搜索中...</div>';
+                this.referencesSection.classList.add('visible');
+                statusElement.textContent = '搜索中...';
+                // 隐藏进度条
+                progressContainer.classList.remove('visible');
                 break;
-            case 'parsing':
-                // 更新搜索结果框的状态提示
-                const loadingDivParse = this.referenceCards.querySelector('.loading');
-                if (loadingDivParse) {
-                    loadingDivParse.textContent = '网页解读中...';
+                
+            case 'fetch_start':
+                // 显示进度条并初始化
+                progressContainer.classList.add('visible');
+                progressBar.style.width = '0%';
+                progressText.textContent = '0%';
+                // 更新状态文本
+                const loadingDiv = this.referenceCards.querySelector('.loading');
+                if (loadingDiv) {
+                    loadingDiv.textContent = data.message;
                 }
-                // 更新聊天框状态
-                const existingLoadingParse = this.answerContent.querySelector('.loading');
-                if (existingLoadingParse) {
-                    existingLoadingParse.textContent = '网页解读中...';
-                }
+                statusElement.textContent = data.message;
                 break;
-            case 'parsing_completed':
-                // 更新搜索结果框的状态提示
-                const loadingDivComplete = this.referenceCards.querySelector('.loading');
-                if (loadingDivComplete) {
-                    loadingDivComplete.textContent = '解读结束';
+                
+            case 'fetch_progress':
+                // 更新进度条
+                if (data.progress) {
+                    const progress = Math.round(data.progress * 100);
+                    progressBar.style.width = `${progress}%`;
+                    progressText.textContent = `${progress}%`;
                 }
-                // 更新聊天框状态
-                const existingLoadingComplete = this.answerContent.querySelector('.loading');
-                if (existingLoadingComplete) {
-                    existingLoadingComplete.textContent = '解读结束';
+                // 更新状态文本
+                const progressLoadingDiv = this.referenceCards.querySelector('.loading');
+                if (progressLoadingDiv) {
+                    progressLoadingDiv.textContent = data.message;
                 }
+                statusElement.textContent = data.message;
                 break;
+                
+            case 'fetch_completed':
+                // 网页爬取完成
+                const completedDiv = this.referenceCards.querySelector('.loading');
+                if (completedDiv) {
+                    completedDiv.remove();
+                }
+                statusElement.textContent = '正在整理信息...';
+                break;
+                
             case 'generating':
-                // 移除搜索结果框中的状态提示（如果存在）
+                // 移除搜索结果区域的状态提示
                 const loadingDivGen = this.referenceCards.querySelector('.loading');
                 if (loadingDivGen) {
                     loadingDivGen.remove();
                 }
-                // 移除现有的loading元素（如果有）
-                const existingLoading = this.answerContent.querySelector('.loading');
-                if (existingLoading) {
-                    existingLoading.remove();
-                }
-                // 添加新的loading提示
-                this.answerContent.insertAdjacentHTML('beforeend', '<div class="loading">生成回答中...</div>');
+                statusElement.textContent = '生成回答中...';
                 break;
+                
             case 'completed':
+                // 移除所有状态提示
+                statusElement.remove();
                 console.log('Chat completed');
                 break;
         }
@@ -340,9 +356,177 @@ class ChatApp {
         });
     }
 
+    handleToolResult(data) {
+        // 处理工具执行结果
+        if (data.tool_name && data.result) {
+            // 在搜索结果区域显示工具执行结果
+            const resultElement = document.createElement('div');
+            resultElement.className = 'reference-card tool-result-card';
+            resultElement.style.opacity = '0';
+            resultElement.style.transition = 'opacity 0.3s ease';
+            
+            // 根据工具类型处理结果
+            switch (data.tool_name) {
+                case 'search_web':
+                    // 处理网页搜索结果
+                    this.handleSearchResults(data.result);
+                    return;
+                    
+                case 'search_arxiv':
+                    // 处理论文搜索结果
+                    this.handleArxivResults(data.result);
+                    return;
+                    
+                default:
+                    // 处理其他工具结果
+                    let resultContent = '';
+                    if (typeof data.result === 'object') {
+                        if (Array.isArray(data.result)) {
+                            // 处理数组结果
+                            resultContent = data.result.map(item => {
+                                if (typeof item === 'object') {
+                                    return Object.entries(item)
+                                        .map(([key, value]) => `${key}: ${value}`)
+                                        .join('\n');
+                                }
+                                return item;
+                            }).join('\n\n');
+                        } else {
+                            // 处理对象结果
+                            resultContent = Object.entries(data.result)
+                                .map(([key, value]) => {
+                                    if (typeof value === 'object') {
+                                        return `${key}:\n${JSON.stringify(value, null, 2)}`;
+                                    }
+                                    return `${key}: ${value}`;
+                                })
+                                .join('\n');
+                        }
+                    } else {
+                        resultContent = data.result.toString();
+                    }
+                    
+                    resultElement.innerHTML = `
+                        <div class="content">
+                            <h3 class="tool-title">${data.tool_name}</h3>
+                            <pre class="tool-result">${this.truncateContent(resultContent, 1000)}</pre>
+                            ${data.message ? `<div class="tool-message">${data.message}</div>` : ''}
+                        </div>
+                    `;
+            }
+            
+            // 如果是第一个工具结果，清空现有内容
+            if (!this.referenceCards.querySelector('.tool-result-card')) {
+                this.referenceCards.innerHTML = '';
+            }
+            
+            this.referenceCards.appendChild(resultElement);
+            this.referencesSection.classList.add('visible');
+            
+            // 添加淡入动画
+            setTimeout(() => resultElement.style.opacity = '1', 10);
+        }
+    }
+
+    handleSearchResults(results) {
+        // 清空原有的搜索结果
+        this.referenceCards.innerHTML = '';
+
+        if (!Array.isArray(results) || results.length === 0) {
+            this.referenceCards.innerHTML = '<div class="no-results">暂无相关搜索结果</div>';
+            this.referencesSection.classList.remove('visible');
+            return;
+        }
+
+        // 显示搜索框
+        this.referencesSection.classList.add('visible');
+
+        // 流式添加新的搜索结果
+        results.forEach((result, index) => {
+            setTimeout(() => {
+                const resultElement = document.createElement('div');
+                resultElement.className = 'reference-card';
+                resultElement.id = `result-${index}`;
+                resultElement.style.opacity = '0';
+                resultElement.style.transition = 'opacity 0.3s ease';
+                
+                resultElement.innerHTML = `
+                    <div class="content">
+                        <h3 class="paper-title">
+                            <a href="${result.link}" target="_blank">${result.title || '无标题'}</a>
+                        </h3>
+                        <div class="paper-content">${this.truncateContent(result.content) || '无内容'}</div>
+                        ${result.date ? `<div class="paper-date">发布时间：${result.date}</div>` : ''}
+                    </div>
+                `;
+                this.referenceCards.appendChild(resultElement);
+                // 添加淡入动画
+                setTimeout(() => resultElement.style.opacity = '1', 10);
+            }, index * 100);
+        });
+    }
+
+    handleArxivResults(papers) {
+        // 清空原有的搜索结果
+        this.referenceCards.innerHTML = '';
+
+        if (!Array.isArray(papers) || papers.length === 0) {
+            this.referenceCards.innerHTML = '<div class="no-results">暂无相关论文</div>';
+            this.referencesSection.classList.remove('visible');
+            return;
+        }
+
+        // 显示搜索框
+        this.referencesSection.classList.add('visible');
+
+        // 流式添加新的论文结果
+        papers.forEach((paper, index) => {
+            setTimeout(() => {
+                const resultElement = document.createElement('div');
+                resultElement.className = 'reference-card';
+                resultElement.id = `paper-${index}`;
+                resultElement.style.opacity = '0';
+                resultElement.style.transition = 'opacity 0.3s ease';
+                
+                resultElement.innerHTML = `
+                    <div class="content">
+                        <h3 class="paper-title">
+                            <a href="${paper.link}" target="_blank">${paper.title || '无标题'}</a>
+                        </h3>
+                        <div class="paper-authors">${Array.isArray(paper.authors) ? paper.authors.join(', ') : (paper.authors || '未知作者')}</div>
+                        <div class="paper-content">${this.truncateContent(paper.content) || '无内容'}</div>
+                        <div class="paper-date">发布时间：${paper.submitted || '未知日期'}</div>
+                    </div>
+                `;
+                this.referenceCards.appendChild(resultElement);
+                // 添加淡入动画
+                setTimeout(() => resultElement.style.opacity = '1', 10);
+            }, index * 100);
+        });
+    }
+
     updateSearchResult(data) {
-        // 不处理网页爬取更新
-        return;
+        // 处理单个搜索结果更新
+        if (data.result && data.result.link) {
+            const existingResult = Array.from(this.referenceCards.children).find(
+                card => card.querySelector('a')?.href === data.result.link
+            );
+            
+            if (existingResult) {
+                // 更新现有结果
+                const content = existingResult.querySelector('.paper-content');
+                if (content) {
+                    content.textContent = this.truncateContent(data.result.content);
+                }
+            } else {
+                // 添加新结果
+                this.updateSearchResults({
+                    status: 'success',
+                    results: [data.result],
+                    isInitialResults: false
+                });
+            }
+        }
     }
 
     updateAnswer(data) {

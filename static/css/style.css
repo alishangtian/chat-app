@@ -353,6 +353,47 @@ body {
     color: #666;
 }
 
+/* 进度条样式 */
+.progress-container {
+    display: none;
+    width: 100%;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+    margin: 10px 0;
+    overflow: hidden;
+}
+
+.progress-container.visible {
+    display: block;
+}
+
+.progress-bar {
+    height: 20px;
+    background-color: #6c5ce7;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    position: relative;
+    min-width: 20px;
+}
+
+.progress-text {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 深色模式下的进度条样式 */
+@media (prefers-color-scheme: dark) {
+    .progress-container {
+        background-color: #3d3d3d;
+    }
+}
+
 .loading::after {
     content: '';
     width: 20px;
